@@ -209,6 +209,46 @@ def trajectory_size(division_rate, death_rate, init_pop_size, t_max, t_pts):
         c += 1
     return(t_simu, n_t)
 
+def trajectory_spinal_size(division_rate, death_rate, init_pop_size, t_max):
+    """Compute a skeleton of one trajectory of the spinal process size.
+
+    Parameters
+    ----------
+    float
+        The parameter giving the division rate of every individuals
+    float
+        The parameter giving the death rate of every individuals
+    float
+        The initial number of individuals 
+    float
+        The ending simulation time
+
+    Returns
+    -------
+    list
+        The times of the nodes of the skeleton
+    list 
+        The number of individuals at each skeleton nodes 
+    """
+    size_max = 2 + int(3 * t_max * (division_rate + death_rate *
+                                           init_pop_size))
+    t_jump = np.zeros(size_max)
+    n_t = init_pop_size  
+    for i in range(1,size_max):
+        rate = division_rate + death_rate * (n_t - 1)
+        t_jump[i] = t_jump[i - 1] + np.random.exponential(1 / rate)
+        if t_jump[i] > t_max:
+            break
+        # Gestion des sauts à t_jump[i]    
+        if n_t == 1:
+            n_t += 1
+        else: 
+            u = np.random.uniform() * rate
+            if u <= division_rate:
+                n_t += 1
+            else:
+                n_t -= 1
+    return(n_t)
 
 def trajectory_opti(division_rate, death_rate, growth_rate, sigma, delta,
                init_pop_size, init_pop_mass, t_max, t_pts):
@@ -436,3 +476,74 @@ def trajectory_spinal_opti(division_rate, death_rate, growth_rate, sigma,
                 w = np.random.randint(0,np.size(traits[traits >= 0]))
             traits[w] = 0
     return(t_simu, n_t, r_t, y_t)
+
+def endpoint_direct(division_rate, death_rate, growth_rate, sigma, delta,
+               init_pop_size, init_pop_mass, t_max):
+    """Compute the last point of an exact trajectory of the colonial process.
+
+    Parameters
+    ----------
+    float
+        The parameter giving the division rate of every individuals
+    float
+        The parameter giving the death rate of every individuals
+    float
+        The parameter giving the growth rate of every individuals
+    float
+        The parameter giving the intrinsic noise of every individuals
+    float
+        The parameter giving the extrinsic noise 
+    float
+        The initial number of individuals
+    float
+        The initial mass of each individual 
+    float
+        The ending simulation time
+
+    Returns
+    -------
+    list
+        The traits of every individuals at ending time  
+    """
+    # Variables initialization
+    traits = np.concatenate([init_pop_mass * np.ones(int(init_pop_size)),
+                            (-1) * np.ones(3 * int(division_rate * t_max))])
+    size_max = 2 + int(3 * t_max * (division_rate + death_rate *
+                                       init_pop_size))
+    t_jump = np.zeros(size_max)
+    #Jumping times loop
+    for i in range(1,size_max):        
+        rate_sup = division_rate + death_rate * pop_size(traits)
+        t_jump[i] = t_jump[i - 1] + np.random.exponential(1 / rate_sup)
+        if t_jump[i] > t_max:
+            traits = sde(traits, t_jump[i - 1], t_max, growth_rate, sigma, delta)
+            break
+        traits = sde(traits, t_jump[i - 1], t_jump[i], growth_rate, sigma, delta)
+       
+        # Computing jump events at t_jump[i]
+        u = np.random.uniform() * rate_sup
+        if u < division_rate:    # Division event
+            v = np.random.uniform() * pop_resources(traits)
+            index = 0
+            count_mass = 0
+            for x in traits[traits >= 0]:
+                count_mass += x
+                if count_mass >= v:
+                    break
+                else:
+                    index += 1
+            theta = theta_func()
+            if np.size(np.where(traits == -1)[0]) > 0:
+                traits[np.where(traits == -1)[0][0]] = (1 - theta)\
+                                                            * traits[index]
+            else:
+                np.append(traits,(1 - theta) * traits[index])
+            traits[index] *= theta
+        else:   # Death event
+            w = np.random.randint(0,np.size(traits[traits >= 0]))
+            while traits[w] == 0:
+                w = np.random.randint(0,np.size(traits[traits >= 0]))
+            traits[w] = 0
+        if pop_size(traits) == 0:
+            break
+    return(traits[traits >= 0])
